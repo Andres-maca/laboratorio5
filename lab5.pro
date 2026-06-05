@@ -8,27 +8,18 @@ CONFIG += c++17
 
 SOURCES += \
         evento_colision.cpp \
-        infraestructura.cpp \
-        juego_turnos.cpp \
-        jugador.cpp \
+        simulador_colisiones.cpp \
         obstaculo.cpp \
         particula_simulada.cpp \
-        proyectil.cpp \
         vector2d.cpp \
         main.cpp
 
 HEADERS += \
         evento_colision.h \
-        infraestructura.h \
-        juego_turnos.h \
-        jugador.h \
+        simulador_colisiones.h \
         obstaculo.h \
         particula_simulada.h \
-        proyectil.h \
         vector2d.h
-
-RESOURCES += \
-        resources.qrc
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

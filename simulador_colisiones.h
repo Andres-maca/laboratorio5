@@ -34,7 +34,12 @@ public:
     double time() const;
     SimulationConfig config() const;
 
+    bool writePositionCsv(const QString &filePath) const;
+    bool writeCollisionLog(const QString &filePath) const;
+    bool writeSvgGraph(const QString &filePath) const;
+
 private:
+    void recordPositions();
     void resolveWallCollisions(Particle &particle);
     void resolveObstacleCollisions(Particle &particle);
     bool resolveParticleCollisions();
@@ -45,6 +50,7 @@ private:
     QList<Particle> m_particles;
     QList<Obstacle> m_obstacles;
     QList<CollisionEvent> m_events;
+    QList<QString> m_positionRows;
     double m_time;
 };
 

@@ -1,322 +1,409 @@
 #include <QApplication>
 #include <QBrush>
+#include <QDoubleSpinBox>
 #include <QFrame>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsTextItem>
 #include <QGraphicsView>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QListWidget>
+#include <QMessageBox>
+#include <QPainter>
 #include <QPen>
+#include <QPixmap>
+#include <QProgressBar>
 #include <QPushButton>
-#include <QSlider>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
-#include <QMap>
+#include <QLineF>
 #include <QPointF>
 #include <QVector>
 
-#include "simulador_colisiones.h"
+#include <QtMath>
 
-static void configurarEscenarioPractica(CollisionSimulator &simulator)
-{
-    const SimulationConfig config = simulator.config();
+#include "juego_turnos.h"
 
-    simulator.addObstacle(Obstacle(1, QRectF(230, 120, 70, 70), config.obstacleRestitution));
-    simulator.addObstacle(Obstacle(2, QRectF(580, 110, 80, 80), config.obstacleRestitution));
-    simulator.addObstacle(Obstacle(3, QRectF(340, 410, 90, 90), config.obstacleRestitution));
-    simulator.addObstacle(Obstacle(4, QRectF(680, 360, 65, 65), config.obstacleRestitution));
-
-    simulator.addParticle(Particle(1, Vector2(100, 120), Vector2(95, 54), 2.0, 16.0));
-    simulator.addParticle(Particle(2, Vector2(780, 175), Vector2(-110, 35), 3.0, 18.0));
-    simulator.addParticle(Particle(3, Vector2(180, 545), Vector2(130, -82), 1.6, 15.0));
-    simulator.addParticle(Particle(4, Vector2(735, 535), Vector2(-88, -72), 2.4, 17.0));
-}
-
-class VentanaSimulacion : public QWidget
+class VentanaJuego : public QWidget
 {
 public:
-    explicit VentanaSimulacion(QWidget *parent = nullptr)
+    explicit VentanaJuego(QWidget *parent = nullptr)
         : QWidget(parent),
           m_config(),
-          m_simulator(m_config),
+          m_juego(m_config),
           m_scene(new QGraphicsScene(this)),
           m_view(new QGraphicsView(m_scene, this)),
           m_timer(new QTimer(this)),
-          m_startButton(new QPushButton("Iniciar", this)),
-          m_stepButton(new QPushButton("Paso", this)),
+          m_angleInput(new QDoubleSpinBox(this)),
+          m_speedInput(new QDoubleSpinBox(this)),
+          m_fireButton(new QPushButton("Disparar", this)),
           m_resetButton(new QPushButton("Reiniciar", this)),
-          m_speedSlider(new QSlider(Qt::Horizontal, this)),
-          m_statsLabel(new QLabel(this)),
-          m_eventList(new QListWidget(this)),
+          m_animationTimer(new QTimer(this)),
           m_lastEventCount(0),
-          m_running(false)
+          m_slimeFrame(0),
+          m_victoryMessageShown(false)
     {
-        m_config.width = 900.0;
-        m_config.height = 650.0;
-        m_config.dt = 0.02;
-        m_config.duration = 18.0;
-        m_config.obstacleRestitution = 0.62;
-
-        m_simulator = CollisionSimulator(m_config);
-
-        setWindowTitle("Practica 5 - Simulacion de colisiones");
-        resize(1180, 780);
+        setWindowTitle("Practica 5 - Juego por turnos");
+        resize(1240, 760);
 
         m_scene->setSceneRect(0, 0, m_config.width, m_config.height);
         m_view->setRenderHint(QPainter::Antialiasing, true);
-        m_view->setMinimumSize(930, 680);
+        m_view->setMinimumSize(1020, 680);
         m_view->setFrameShape(QFrame::NoFrame);
-        m_view->setBackgroundBrush(QBrush(QColor("#f4f6f8")));
+        m_view->setBackgroundBrush(QBrush(QColor("#eef2f6")));
 
-        m_speedSlider->setRange(1, 10);
-        m_speedSlider->setValue(3);
+        m_angleInput->setRange(10.0, 80.0);
+        m_angleInput->setSingleStep(2.5);
+        m_angleInput->setValue(45.0);
+        m_angleInput->setSuffix(" deg");
 
-        m_eventList->setMinimumWidth(280);
-        m_eventList->setAlternatingRowColors(true);
+        m_speedInput->setRange(80.0, 260.0);
+        m_speedInput->setSingleStep(10.0);
+        m_speedInput->setValue(170.0);
 
-        auto *controlsLayout = new QHBoxLayout();
-        controlsLayout->addWidget(m_startButton);
-        controlsLayout->addWidget(m_stepButton);
-        controlsLayout->addWidget(m_resetButton);
-        controlsLayout->addSpacing(10);
+        auto *controlsBox = new QGroupBox("Lanzamiento", this);
+        auto *controlsLayout = new QHBoxLayout(controlsBox);
+        controlsLayout->addWidget(new QLabel("Angulo", this));
+        controlsLayout->addWidget(m_angleInput);
         controlsLayout->addWidget(new QLabel("Velocidad", this));
-        controlsLayout->addWidget(m_speedSlider);
+        controlsLayout->addWidget(m_speedInput);
+        controlsLayout->addWidget(m_fireButton);
+        controlsLayout->addWidget(m_resetButton);
 
         auto *leftLayout = new QVBoxLayout();
-        leftLayout->addWidget(m_view);
-        leftLayout->addLayout(controlsLayout);
+        leftLayout->addWidget(m_view, 1);
+        leftLayout->addWidget(controlsBox);
 
-        auto *rightLayout = new QVBoxLayout();
-        rightLayout->addWidget(new QLabel("Estado", this));
-        rightLayout->addWidget(m_statsLabel);
-        rightLayout->addSpacing(12);
-        rightLayout->addWidget(new QLabel("Colisiones", this));
-        rightLayout->addWidget(m_eventList, 1);
-
-        auto *mainLayout = new QHBoxLayout(this);
+        auto *mainLayout = new QVBoxLayout(this);
         mainLayout->addLayout(leftLayout, 1);
-        mainLayout->addLayout(rightLayout);
 
-        connect(m_startButton, &QPushButton::clicked, this, [this]() {
-            m_running = !m_running;
-            m_startButton->setText(m_running ? "Pausar" : "Iniciar");
-            if (m_running) {
-                m_timer->start(30);
-            } else {
-                m_timer->stop();
-            }
-        });
-
-        connect(m_stepButton, &QPushButton::clicked, this, [this]() {
-            avanzarSimulacion(1);
+        connect(m_fireButton, &QPushButton::clicked, this, [this]() {
+            disparar();
         });
 
         connect(m_resetButton, &QPushButton::clicked, this, [this]() {
-            reiniciarSimulacion();
+            reiniciar();
         });
 
         connect(m_timer, &QTimer::timeout, this, [this]() {
-            avanzarSimulacion(m_speedSlider->value());
+            avanzar();
         });
 
-        reiniciarSimulacion();
+        connect(m_animationTimer, &QTimer::timeout, this, [this]() {
+            m_slimeFrame = (m_slimeFrame + 1) % 6;
+            dibujarEscena();
+        });
+
+        cargarSprites();
+        reiniciar();
+        m_animationTimer->start(160);
     }
 
 private:
-    void reiniciarSimulacion()
+    void reiniciar()
     {
         m_timer->stop();
-        m_running = false;
-        m_startButton->setText("Iniciar");
+        m_juego.reiniciar();
+        m_trayectoria.clear();
         m_lastEventCount = 0;
-        m_trails.clear();
-        m_eventList->clear();
-
-        m_simulator = CollisionSimulator(m_config);
-        configurarEscenarioPractica(m_simulator);
-        registrarPuntosActuales();
+        m_victoryMessageShown = false;
+        actualizarBotones();
         dibujarEscena();
     }
 
-    void avanzarSimulacion(int steps)
+    void disparar()
     {
-        for (int i = 0; i < steps; ++i) {
-            m_simulator.step();
-            registrarPuntosActuales();
+        if (!m_juego.disparar(m_angleInput->value(), m_speedInput->value())) {
+            return;
+        }
+
+        m_trayectoria.clear();
+        registrarPuntoProyectil();
+        actualizarEventos();
+        actualizarBotones();
+        dibujarEscena();
+        m_timer->start(16);
+    }
+
+    void avanzar()
+    {
+        for (int i = 0; i < 3; ++i) {
+            m_juego.avanzar();
+            registrarPuntoProyectil();
         }
 
         actualizarEventos();
         dibujarEscena();
+        actualizarBotones();
+        mostrarVictoriaSiExiste();
+
+        if (!m_juego.turnoEnCurso()) {
+            m_timer->stop();
+        }
     }
 
-    void registrarPuntosActuales()
+    void registrarPuntoProyectil()
     {
-        for (const Particle &particle : m_simulator.particles()) {
-            const Vector2 position = particle.position();
-            QVector<QPointF> &points = m_trails[particle.label()];
-            points.append(QPointF(position.x, position.y));
-            if (points.size() > 500) {
-                points.remove(0, points.size() - 500);
-            }
+        const Proyectil proyectil = m_juego.proyectil();
+        if (!proyectil.active()) {
+            return;
+        }
+
+        const Vector2 position = proyectil.position();
+        m_trayectoria.append(QPointF(position.x, position.y));
+        if (m_trayectoria.size() > 450) {
+            m_trayectoria.remove(0, m_trayectoria.size() - 450);
         }
     }
 
     void actualizarEventos()
     {
-        const QList<CollisionEvent> events = m_simulator.events();
-        for (int i = m_lastEventCount; i < events.size(); ++i) {
-            const CollisionEvent event = events.at(i);
-            m_eventList->insertItem(0, QString("%1 s | %2\n%3")
-                                           .arg(event.time(), 0, 'f', 2)
-                                           .arg(event.type())
-                                           .arg(event.description()));
-        }
+        m_lastEventCount = m_juego.eventos().size();
+    }
 
-        m_lastEventCount = events.size();
+    void actualizarBotones()
+    {
+        const bool puedeDisparar = !m_juego.turnoEnCurso() && m_juego.ganadorId() == 0;
+        m_fireButton->setEnabled(puedeDisparar);
+        m_angleInput->setEnabled(puedeDisparar);
+        m_speedInput->setEnabled(puedeDisparar);
+    }
 
-        while (m_eventList->count() > 80) {
-            delete m_eventList->takeItem(m_eventList->count() - 1);
-        }
+    void dibujarTurno()
+    {
+        QGraphicsTextItem *turno = m_scene->addText(
+            QString("Turno: Jugador %1").arg(m_juego.jugadorActual().id())
+            );
+
+        QFont font;
+        font.setPointSize(18);
+        font.setBold(true);
+
+        turno->setFont(font);
+        turno->setDefaultTextColor(QColor("#ffffff"));
+        turno->setPos(50, 50);
     }
 
     void dibujarEscena()
     {
         m_scene->clear();
-        dibujarCaja();
-        dibujarObstaculos();
-        dibujarTrayectorias();
-        dibujarParticulas();
-        actualizarEstado();
+        dibujarEscenario();
+        dibujarInfraestructura();
+        dibujarRepresentantes();
+        dibujarProyectil();
+        dibujarGuiaDisparo();
+        dibujarTurno();
     }
 
-    void dibujarCaja()
+    void dibujarEscenario()
     {
+        if (!m_escenarioPixmap.isNull()) {
+            dibujarImagenEnRect(m_escenarioPixmap, QRectF(0, 0, m_config.width, m_config.height), Qt::IgnoreAspectRatio);
+        }
+
+        if (!m_pisoPixmap.isNull()) {
+            dibujarImagenEnRect(m_pisoPixmap, QRectF(0, m_config.height - m_config.floorHeight,
+                                                      m_config.width, m_config.floorHeight),
+                                Qt::IgnoreAspectRatio);
+        }
+
         m_scene->addRect(0, 0, m_config.width, m_config.height,
-                         QPen(QColor("#17202a"), 3),
-                         QBrush(QColor("#ffffff")));
+                         QPen(QColor("#111827"), 3),
+                         QBrush(Qt::NoBrush));
     }
 
-    void dibujarObstaculos()
+    void dibujarRepresentantes()
     {
-        for (const Obstacle &obstacle : m_simulator.obstacles()) {
-            QGraphicsRectItem *item = m_scene->addRect(obstacle.rect(),
-                                                       QPen(QColor("#4b5563"), 2),
-                                                       QBrush(QColor("#9ca3af")));
-            item->setToolTip(QString("Obstaculo O%1, e=%2")
-                                 .arg(obstacle.id())
-                                 .arg(obstacle.restitution(), 0, 'f', 2));
+        for (const Jugador &jugador : m_juego.jugadores()) {
+            const QColor color = colorJugador(jugador.id());
+            const QRectF rect = jugador.representante();
+            const QPointF spawn = jugador.posicionDisparo();
+            const QPixmap playerPixmap = jugador.id() == 1 ? m_totoroPixmap : m_totoroDerechoPixmap;
 
-            QGraphicsTextItem *label = m_scene->addText(QString("O%1").arg(obstacle.id()));
-            label->setDefaultTextColor(QColor("#111827"));
-            label->setPos(obstacle.rect().center().x() - 10, obstacle.rect().center().y() - 14);
+            m_scene->addEllipse(QRectF(spawn.x() - 8, spawn.y() - 8, 16, 16),
+                                QPen(QColor("#111827"), 2),
+                                QBrush(color));
+            m_scene->addLine(QLineF(spawn.x(), spawn.y(),
+                                    spawn.x() + (jugador.id() == 1 ? 42.0 : -42.0), spawn.y() - 42.0),
+                             QPen(color.darker(130), 5));
+
+            const QRectF playerRect(jugador.id() == 1 ? spawn.x() - 105.0 : m_config.width - 155.0,
+                                    spawn.y() - 120.0, 180.0, 240.0);
+            dibujarImagenEnRect(playerPixmap, playerRect, Qt::KeepAspectRatio);
+
+            dibujarImagenEnRect(frameSlimeActual(), rect, Qt::KeepAspectRatio);
         }
     }
 
-    void dibujarTrayectorias()
+    void dibujarInfraestructura()
     {
-        for (auto it = m_trails.constBegin(); it != m_trails.constEnd(); ++it) {
-            const QVector<QPointF> points = it.value();
-            if (points.size() < 2) {
-                continue;
+        for (const Infraestructura &infra : m_juego.infraestructuras()) {
+            const QColor baseColor = colorJugador(infra.duenoId());
+            QColor fill = infra.destruida() ? QColor("#e5e7eb") : baseColor.lighter(145);
+            QPen pen(infra.destruida() ? QColor("#9ca3af") : QColor("#374151"), 2);
+            if (infra.destruida()) {
+                pen.setStyle(Qt::DashLine);
             }
 
-            QPen pen(colorParaEtiqueta(it.key()), 1.5);
-            pen.setCosmetic(true);
-            for (int i = 1; i < points.size(); ++i) {
-                m_scene->addLine(QLineF(points.at(i - 1), points.at(i)), pen);
+            if (!m_bloquePixmap.isNull()) {
+                dibujarImagenEnRect(m_bloquePixmap, infra.rect(), Qt::IgnoreAspectRatio);
+                m_scene->addRect(infra.rect(), pen, QBrush(Qt::NoBrush));
+                if (infra.destruida()) {
+                    m_scene->addRect(infra.rect(), QPen(Qt::NoPen), QBrush(QColor(229, 231, 235, 170)));
+                }
+            } else {
+                m_scene->addRect(infra.rect(), pen, QBrush(fill));
             }
+
+            const double ratio = infra.resistenciaInicial() == 0.0
+                                     ? 0.0
+                                     : infra.resistencia() / infra.resistenciaInicial();
+            const QRectF bar(infra.rect().x(), infra.rect().y() - 10,
+                             infra.rect().width() * ratio, 6);
+            m_scene->addRect(QRectF(infra.rect().x(), infra.rect().y() - 10,
+                                    infra.rect().width(), 6),
+                             QPen(Qt::NoPen),
+                             QBrush(QColor("#e5e7eb")));
+            m_scene->addRect(bar, QPen(Qt::NoPen), QBrush(QColor("#22c55e")));
+
         }
     }
 
-    void dibujarParticulas()
+    void dibujarTrayectoria()
     {
-        for (const Particle &particle : m_simulator.particles()) {
-            const Vector2 position = particle.position();
-            const double radius = particle.radius();
-            const QRectF rect(position.x - radius, position.y - radius, radius * 2.0, radius * 2.0);
-            const QColor color = colorParaEtiqueta(particle.label());
+        if (m_trayectoria.size() < 2) {
+            return;
+        }
 
-            QGraphicsEllipseItem *item = m_scene->addEllipse(rect, QPen(QColor("#111827"), 2), QBrush(color));
-            item->setToolTip(QString("%1 | masa=%2 | v=(%3,%4)")
-                                 .arg(particle.label())
-                                 .arg(particle.mass(), 0, 'f', 2)
-                                 .arg(particle.velocity().x, 0, 'f', 1)
-                                 .arg(particle.velocity().y, 0, 'f', 1));
-
-            QGraphicsTextItem *label = m_scene->addText(particle.label());
-            label->setDefaultTextColor(QColor("#111827"));
-            label->setPos(position.x + radius + 3, position.y - radius - 4);
+        QPen pen(QColor("#2563eb"), 2);
+        pen.setCosmetic(true);
+        for (int i = 1; i < m_trayectoria.size(); ++i) {
+            m_scene->addLine(QLineF(m_trayectoria.at(i - 1), m_trayectoria.at(i)), pen);
         }
     }
 
-    void actualizarEstado()
+    void dibujarProyectil()
     {
-        int wallEvents = 0;
-        int obstacleEvents = 0;
-        int particleEvents = 0;
-
-        for (const CollisionEvent &event : m_simulator.events()) {
-            if (event.type() == "pared-elastica") {
-                ++wallEvents;
-            } else if (event.type() == "obstaculo-inelastico") {
-                ++obstacleEvents;
-            } else if (event.type() == "particulas-completamente-inelastico") {
-                ++particleEvents;
-            }
+        const Proyectil proyectil = m_juego.proyectil();
+        if (!proyectil.active()) {
+            return;
         }
 
-        m_statsLabel->setText(QString("Tiempo: %1 s\nParticulas activas: %2\nPared elastica: %3\nObstaculo inelastico: %4\nUnion de particulas: %5")
-                                  .arg(m_simulator.time(), 0, 'f', 2)
-                                  .arg(m_simulator.particles().size())
-                                  .arg(wallEvents)
-                                  .arg(obstacleEvents)
-                                  .arg(particleEvents));
+        const Vector2 position = proyectil.position();
+        const double radius = proyectil.radius();
+        m_scene->addEllipse(QRectF(position.x - radius, position.y - radius, radius * 2, radius * 2),
+                            QPen(QColor("#111827"), 2),
+                            QBrush(QColor("#facc15")));
     }
 
-    QColor colorParaEtiqueta(const QString &label) const
+    void dibujarGuiaDisparo()
     {
-        if (label.contains("P1")) {
-            return QColor("#e63946");
-        }
-        if (label.contains("P2")) {
-            return QColor("#2a9d8f");
-        }
-        if (label.contains("P3")) {
-            return QColor("#457b9d");
-        }
-        if (label.contains("P4")) {
-            return QColor("#f4a261");
+        if (m_juego.turnoEnCurso() || m_juego.ganadorId() != 0) {
+            return;
         }
 
-        return QColor("#6d597a");
+        const Jugador jugador = m_juego.jugadorActual();
+        const double direction = jugador.id() == 1 ? 1.0 : -1.0;
+        const double radians = qDegreesToRadians(m_angleInput->value());
+        const QPointF start = jugador.posicionDisparo();
+        const QPointF end(start.x() + direction * qCos(radians) * 70.0,
+                          start.y() - qSin(radians) * 70.0);
+
+        QPen pen(colorJugador(jugador.id()).darker(125), 4);
+        pen.setCapStyle(Qt::RoundCap);
+        m_scene->addLine(QLineF(start, end), pen);
     }
 
-    SimulationConfig m_config;
-    CollisionSimulator m_simulator;
+    QColor colorJugador(int id) const
+    {
+        return id == 1 ? QColor("#dc2626") : QColor("#2563eb");
+    }
+
+    void mostrarVictoriaSiExiste()
+    {
+        if (m_victoryMessageShown || m_juego.ganadorId() == 0) {
+            return;
+        }
+
+        m_victoryMessageShown = true;
+        QMessageBox::information(this,
+                                 "Victoria",
+                                 QString("Ganaste Jugador %1").arg(m_juego.ganadorId()));
+    }
+
+    void cargarSprites()
+    {
+        m_totoroPixmap.load(":/sprites/totoro.png");
+        m_totoroDerechoPixmap.load(":/sprites/totoroDerecho.png");
+        m_slimePixmap.load(":/sprites/slimeV2.png");
+        m_bloquePixmap.load(":/sprites/madera.png");
+        m_escenarioPixmap.load(":/sprites/escenarioV2.png");
+        m_pisoPixmap.load(":/sprites/piso.png");
+    }
+
+    QPixmap frameSlimeActual() const
+    {
+        if (m_slimePixmap.isNull()) {
+            return QPixmap();
+        }
+
+        const int frameCount = 6;
+        const int x0 = m_slimeFrame * m_slimePixmap.width() / frameCount;
+        const int x1 = (m_slimeFrame + 1) * m_slimePixmap.width() / frameCount;
+        return m_slimePixmap.copy(x0, 0, x1 - x0, m_slimePixmap.height());
+    }
+
+    void dibujarImagenEnRect(const QPixmap &pixmap, const QRectF &target, Qt::AspectRatioMode mode)
+    {
+        if (pixmap.isNull()) {
+            m_scene->addRect(target, QPen(QColor("#111827"), 1), QBrush(QColor("#e5e7eb")));
+            return;
+        }
+
+        const QPixmap scaled = pixmap.scaled(target.size().toSize(), mode, Qt::SmoothTransformation);
+        QPointF position = target.topLeft();
+        if (mode == Qt::KeepAspectRatio) {
+            position.setX(target.x() + (target.width() - scaled.width()) / 2.0);
+            position.setY(target.y() + (target.height() - scaled.height()) / 2.0);
+        }
+
+        QGraphicsPixmapItem *item = m_scene->addPixmap(scaled);
+        item->setPos(position);
+    }
+
+    JuegoConfig m_config;
+    JuegoTurnos m_juego;
     QGraphicsScene *m_scene;
     QGraphicsView *m_view;
     QTimer *m_timer;
-    QPushButton *m_startButton;
-    QPushButton *m_stepButton;
+    QDoubleSpinBox *m_angleInput;
+    QDoubleSpinBox *m_speedInput;
+    QPushButton *m_fireButton;
     QPushButton *m_resetButton;
-    QSlider *m_speedSlider;
-    QLabel *m_statsLabel;
-    QListWidget *m_eventList;
-    QMap<QString, QVector<QPointF>> m_trails;
+    QTimer *m_animationTimer;
+    QVector<QPointF> m_trayectoria;
+    QPixmap m_totoroPixmap;
+    QPixmap m_totoroDerechoPixmap;
+    QPixmap m_slimePixmap;
+    QPixmap m_bloquePixmap;
+    QPixmap m_escenarioPixmap;
+    QPixmap m_pisoPixmap;
     int m_lastEventCount;
-    bool m_running;
+    int m_slimeFrame;
+    bool m_victoryMessageShown;
 };
+
+
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
 
-    VentanaSimulacion window;
+    VentanaJuego window;
     window.show();
 
     return app.exec();

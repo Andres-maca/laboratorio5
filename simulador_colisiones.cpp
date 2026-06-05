@@ -1,11 +1,5 @@
 #include "simulador_colisiones.h"
 
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QMap>
-#include <QStringList>
-#include <QTextStream>
 #include <QtMath>
 
 CollisionSimulator::CollisionSimulator(const SimulationConfig &config)
@@ -29,16 +23,13 @@ void CollisionSimulator::clear()
     m_particles.clear();
     m_obstacles.clear();
     m_events.clear();
-    m_positionRows.clear();
     m_time = 0.0;
 }
 
 void CollisionSimulator::run()
 {
-    m_positionRows.clear();
     m_events.clear();
     m_time = 0.0;
-    recordPositions();
 
     while (m_time < m_config.duration && !m_particles.isEmpty()) {
         step();
@@ -59,7 +50,6 @@ void CollisionSimulator::step()
     }
 
     m_time += m_config.dt;
-    recordPositions();
 }
 
 QList<Particle> CollisionSimulator::particles() const
@@ -85,125 +75,6 @@ double CollisionSimulator::time() const
 SimulationConfig CollisionSimulator::config() const
 {
     return m_config;
-}
-
-bool CollisionSimulator::writePositionCsv(const QString &filePath) const
-{
-    QDir().mkpath(QFileInfo(filePath).absolutePath());
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        return false;
-    }
-
-    QTextStream out(&file);
-    out << "time,particle,x,y,vx,vy,mass,radius\n";
-    for (const QString &row : m_positionRows) {
-        out << row << '\n';
-    }
-
-    return true;
-}
-
-bool CollisionSimulator::writeCollisionLog(const QString &filePath) const
-{
-    QDir().mkpath(QFileInfo(filePath).absolutePath());
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        return false;
-    }
-
-    QTextStream out(&file);
-    out << "time,type,description\n";
-    for (const CollisionEvent &event : m_events) {
-        out << QString::number(event.time(), 'f', 3) << ','
-            << event.type() << ','
-            << '"' << event.description() << '"' << '\n';
-    }
-
-    return true;
-}
-
-bool CollisionSimulator::writeSvgGraph(const QString &filePath) const
-{
-    QDir().mkpath(QFileInfo(filePath).absolutePath());
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        return false;
-    }
-
-    const double margin = 40.0;
-    const double svgWidth = m_config.width + margin * 2.0;
-    const double svgHeight = m_config.height + margin * 2.0;
-    const QStringList colors = {"#d7263d", "#1b998b", "#2e86ab", "#f46036", "#6a4c93", "#2d3047"};
-
-    QTextStream out(&file);
-    out << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << svgWidth
-        << "\" height=\"" << svgHeight << "\" viewBox=\"0 0 " << svgWidth << ' ' << svgHeight << "\">\n";
-    out << "<rect width=\"100%\" height=\"100%\" fill=\"#f7f7f2\"/>\n";
-    out << "<rect x=\"" << margin << "\" y=\"" << margin << "\" width=\"" << m_config.width
-        << "\" height=\"" << m_config.height << "\" fill=\"white\" stroke=\"#1f2933\" stroke-width=\"2\"/>\n";
-
-    for (const Obstacle &obstacle : m_obstacles) {
-        const QRectF rect = obstacle.rect();
-        out << "<rect x=\"" << margin + rect.x() << "\" y=\"" << margin + rect.y()
-            << "\" width=\"" << rect.width() << "\" height=\"" << rect.height()
-            << "\" fill=\"#9ca3af\" stroke=\"#374151\" stroke-width=\"2\"/>\n";
-    }
-
-    QMap<QString, QString> paths;
-    for (const QString &row : m_positionRows) {
-        const QStringList values = row.split(',');
-        if (values.size() < 4) {
-            continue;
-        }
-
-        const QString label = values.at(1);
-        const double x = values.at(2).toDouble();
-        const double y = values.at(3).toDouble();
-        paths[label] += QString("%1,%2 ").arg(margin + x, 0, 'f', 2).arg(margin + y, 0, 'f', 2);
-    }
-
-    int colorIndex = 0;
-    for (auto it = paths.constBegin(); it != paths.constEnd(); ++it) {
-        const QString color = colors.at(colorIndex % colors.size());
-        out << "<polyline points=\"" << it.value()
-            << "\" fill=\"none\" stroke=\"" << color
-            << "\" stroke-width=\"2\" stroke-opacity=\"0.85\"/>\n";
-        out << "<text x=\"12\" y=\"" << 24 + colorIndex * 18
-            << "\" fill=\"" << color << "\" font-family=\"Arial\" font-size=\"14\">"
-            << it.key() << "</text>\n";
-        ++colorIndex;
-    }
-
-    for (const Particle &particle : m_particles) {
-        out << "<circle cx=\"" << margin + particle.position().x
-            << "\" cy=\"" << margin + particle.position().y
-            << "\" r=\"" << particle.radius()
-            << "\" fill=\"#111827\" fill-opacity=\"0.25\" stroke=\"#111827\"/>\n";
-    }
-
-    out << "</svg>\n";
-    return true;
-}
-
-void CollisionSimulator::recordPositions()
-{
-    for (const Particle &particle : m_particles) {
-        const Vector2 position = particle.position();
-        const Vector2 velocity = particle.velocity();
-        m_positionRows.append(QString("%1,%2,%3,%4,%5,%6,%7,%8")
-                                  .arg(m_time, 0, 'f', 3)
-                                  .arg(particle.label())
-                                  .arg(position.x, 0, 'f', 3)
-                                  .arg(position.y, 0, 'f', 3)
-                                  .arg(velocity.x, 0, 'f', 3)
-                                  .arg(velocity.y, 0, 'f', 3)
-                                  .arg(particle.mass(), 0, 'f', 3)
-                                  .arg(particle.radius(), 0, 'f', 3));
-    }
 }
 
 void CollisionSimulator::resolveWallCollisions(Particle &particle)

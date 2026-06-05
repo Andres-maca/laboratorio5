@@ -7,25 +7,25 @@ CONFIG += c++17
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
-        evento_colision.cpp \
-        infraestructura.cpp \
-        juego_turnos.cpp \
-        jugador.cpp \
-        obstaculo.cpp \
-        particula_simulada.cpp \
-        proyectil.cpp \
-        vector2d.cpp \
-        main.cpp
+        src/evento_colision.cpp \
+        src/infraestructura.cpp \
+        src/juego_turnos.cpp \
+        src/jugador.cpp \
+        src/obstaculo.cpp \
+        src/particula_simulada.cpp \
+        src/proyectil.cpp \
+        src/vector2d.cpp \
+        src/main.cpp
 
 HEADERS += \
-        evento_colision.h \
-        infraestructura.h \
-        juego_turnos.h \
-        jugador.h \
-        obstaculo.h \
-        particula_simulada.h \
-        proyectil.h \
-        vector2d.h
+        src/evento_colision.h \
+        src/infraestructura.h \
+        src/juego_turnos.h \
+        src/jugador.h \
+        src/obstaculo.h \
+        src/particula_simulada.h \
+        src/proyectil.h \
+        src/vector2d.h
 
 RESOURCES += \
         resources.qrc

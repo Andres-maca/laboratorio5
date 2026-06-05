@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagrama de clases — Lab 5</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f8f7f2; color: #2c2c2a; margin: 0; padding: 2rem; }
+    h1 { font-size: 1.4rem; font-weight: 500; margin-bottom: 0.25rem; }
+    p.sub { color: #5f5e5a; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    #erd { background: #fff; border: 1px solid #d3d1c7; border-radius: 12px; padding: 1.5rem; overflow-x: auto; }
+    #erd svg { max-width: 100%; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1c1c1a; color: #c2c0b6; }
+      #erd { background: #252522; border-color: #444441; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Diagrama de clases — Lab 5</h1>
+  <p class="sub">Módulo 2: juego de turnos con simulación de partículas y colisiones (C++ / Qt)</p>
+  <div id="erd"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    const oscuro = matchMedia('(prefers-color-scheme: dark)').matches;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      themeVariables: {
+        darkMode: oscuro,
+        fontSize: '13px',
+        lineColor: oscuro ? '#9c9a92' : '#73726c',
+        textColor: oscuro ? '#c2c0b6' : '#3d3d3a',
+        primaryColor: oscuro ? '#2C2C2A' : '#F1EFE8',
+        primaryBorderColor: oscuro ? '#5F5E5A' : '#B4B2A9',
+        primaryTextColor: oscuro ? '#c2c0b6' : '#3d3d3a',
+        secondaryColor: oscuro ? '#1e2c38' : '#E6F1FB',
+        tertiaryColor: oscuro ? '#1d2c1e' : '#EAF3DE',
+      },
+    });
+
+    const diagrama = `classDiagram
+    class Vector2 {
+        +double x
+        +double y
+        +longitud() double
+        +longitudCuadrada() double
+        +normalizado() Vector2
+        +puntoPorPunto(Vector2, Vector2) double
+    }
+    class Particula {
+        -int id
+        -Vector2 posicion
+        -Vector2 velocidad
+        -double masa
+        -double radio
+        +posicion() Vector2
+        +velocidad() Vector2
+        +mover(double dt)
+        +establecerPosicion(Vector2)
+        +establecerVelocidad(Vector2)
+    }
+    class Obstaculo {
+        -int id
+        -QRectF rectangulo
+        -double restitucion
+        -double resistencia
+        +rectangulo() QRectF
+        +restitucion() double
+        +resistencia() double
+        +establecerResistencia(double)
+    }
+    class EventoColision {
+        -double tiempo
+        -QString tipo
+        -QString descripcion
+        +tiempo() double
+        +tipo() QString
+        +descripcion() QString
+    }
+    class SimuladorColisiones {
+        -Lista~Particula~ particulas
+        -Lista~Obstaculo~ obstaculos
+        -Lista~EventoColision~ eventos
+        -double tiempoActual
+        +agregarParticula(Particula)
+        +agregarObstaculo(Obstaculo)
+        +ejecutar()
+        +paso()
+        +eventos() Lista~EventoColision~
+    }
+    class Proyectil {
+        -Particula particula
+        -int idDueno
+        -bool activo
+        +posicion() Vector2
+        +velocidad() Vector2
+        +rapidez() double
+        +mover(double dt)
+        +establecerActivo(bool)
+    }
+    class Infraestructura {
+        -int idDueno
+        -Obstaculo obstaculo
+        -double resistenciaInicial
+        +resistencia() double
+        +destruida() bool
+        +aplicarDano(double)
+    }
+    class Jugador {
+        -int id
+        -QString nombre
+        -QPointF posicionDisparo
+        -QRectF representante
+        +id() int
+        +nombre() QString
+        +posicionDisparo() QPointF
+    }
+    class JuegoTurnos {
+        -Lista~Jugador~ jugadores
+        -Lista~Infraestructura~ infraestructuras
+        -Proyectil proyectil
+        -int idGanador
+        +disparar(double angulo, double vel) bool
+        +avanzar()
+        +jugadorActual() Jugador
+        +reiniciar()
+    }
+    Particula --> Vector2 : usa
+    Proyectil *-- Particula : contiene
+    Infraestructura *-- Obstaculo : contiene
+    SimuladorColisiones o-- Particula : gestiona
+    SimuladorColisiones o-- Obstaculo : gestiona
+    SimuladorColisiones --> EventoColision : registra
+    JuegoTurnos *-- Proyectil : posee
+    JuegoTurnos o-- Jugador : gestiona
+    JuegoTurnos o-- Infraestructura : gestiona
+    JuegoTurnos --> EventoColision : registra`;
+
+    mermaid.render('erd-svg', diagrama).then(({ svg }) => {
+      document.getElementById('erd').innerHTML = svg;
+    });
+  </script>
+</body>
+</html>
